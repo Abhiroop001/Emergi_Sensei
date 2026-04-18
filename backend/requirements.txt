@@ -1,0 +1,11 @@
+fastapi[standard]
+uvicorn
+python-multipart
+pydantic
+pydantic-settings
+Pillow
+torch
+torchvision
+transformers
+tensorflow
+keras
