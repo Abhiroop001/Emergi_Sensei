@@ -1,8 +1,15 @@
 import io
 import os
+import gc
 import torch
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+# Set single thread to minimize thread-pool memory overhead on cloud containers
+try:
+    torch.set_num_threads(1)
+except Exception:
+    pass
 
 # Global variables for model and processor
 _fire_processor = None
@@ -32,7 +39,10 @@ def get_fire_model():
         try:
             print(f"Loading fire model from: {target}...")
             _fire_processor = AutoImageProcessor.from_pretrained(target)
-            _fire_model = AutoModelForImageClassification.from_pretrained(target)
+            _fire_model = AutoModelForImageClassification.from_pretrained(
+                target,
+                low_cpu_mem_usage=True
+            )
             _fire_model.eval()
             print("Fire model loaded successfully.")
         except Exception as e:
@@ -85,6 +95,10 @@ async def process_fire_image(image_bytes: bytes) -> dict:
         
         formatted_pred = f"{predicted_label.capitalize()} Detected" if is_hazard else "Normal (No Fire/Smoke)"
         
+        # Cleanup temporary tensor buffers
+        del inputs, outputs, logits, probs
+        gc.collect()
+
         return {
             "prediction": formatted_pred,
             "raw_label": predicted_label,

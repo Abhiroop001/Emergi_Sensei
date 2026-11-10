@@ -76,7 +76,7 @@ app.include_router(alerts.router, prefix="/alerts", tags=["Alerts Management"])
 app.include_router(cameras.router, prefix="/cameras", tags=["CCTV Cameras"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {
         "app": "Emergi-Sensei AI Surveillance Backend",
@@ -85,6 +85,6 @@ def root():
         "docs": "/docs"
     }
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "healthy", "engine": "running"}
