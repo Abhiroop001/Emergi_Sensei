@@ -5,6 +5,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import CCTV from './pages/CCTV';
+import LiveCamera from './pages/LiveCamera';
 import Upload from './pages/Upload';
 import Analysis from './pages/Analysis';
 import Alerts from './pages/Alerts';
@@ -19,6 +20,7 @@ function App() {
         
         <Route path="/app" element={<MainLayout />}>
           <Route path="dashboard" element={<Dashboard />} />
+          <Route path="live-camera" element={<LiveCamera />} />
           <Route path="cctv" element={<CCTV />} />
           <Route path="upload" element={<Upload />} />
           <Route path="analysis" element={<Analysis />} />
@@ -31,3 +33,4 @@ function App() {
 }
 
 export default App;
+

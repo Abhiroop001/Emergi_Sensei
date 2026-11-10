@@ -13,7 +13,11 @@ async def detect_accident(file: UploadFile = File(...)):
     
     # Process image through our ML service
     try:
-        prediction = await process_accident_image(image_bytes)
-        return {"filename": file.filename, "prediction": prediction}
+        result = await process_accident_image(image_bytes)
+        return {
+            "filename": file.filename,
+            **result
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
