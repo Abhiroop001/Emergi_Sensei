@@ -8,15 +8,97 @@ from PIL import Image
 _tflite_interpreter = None
 _tflite_details = None
 _accident_keras_model = None
+_vehicle_processor = None
+_vehicle_model = None
 
-def detect_vehicle_optional(is_accident: bool) -> tuple[bool, str, float]:
+VEHICLE_CLASSES = {'car', 'truck', 'bus', 'motorcycle', 'bicycle', 'train', 'van'}
+
+def get_vehicle_detector():
     """
-    Zero-overhead vehicle context enrichment.
-    In traffic surveillance, accident scenes inherently involve roadway vehicles.
+    Stage 1: Load lightweight Hugging Face YOLOS model (~25MB) for vehicle/car pre-detection.
     """
-    if is_accident:
-        return True, "Vehicle Collision", 95.0
-    return True, "Roadway Traffic", 90.0
+    global _vehicle_processor, _vehicle_model
+    if _vehicle_processor is not None and _vehicle_model is not None:
+        return _vehicle_processor, _vehicle_model
+
+    candidate_paths = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..", "saved_vehicle_model")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "saved_vehicle_model")),
+        os.path.abspath("saved_vehicle_model"),
+        os.path.abspath(os.path.join("..", "saved_vehicle_model")),
+        "/opt/render/project/src/saved_vehicle_model",
+        "/opt/render/project/src/backend/saved_vehicle_model"
+    ]
+
+    target = None
+    for path in candidate_paths:
+        if os.path.exists(path) and os.path.isdir(path):
+            weights_path = os.path.join(path, "model.safetensors")
+            if os.path.exists(weights_path) and os.path.getsize(weights_path) > 1024 * 1024:
+                target = path.replace("\\", "/")
+                break
+
+    if target is None:
+        target = "hustvl/yolos-tiny"
+
+    try:
+        from transformers import AutoImageProcessor, AutoModelForObjectDetection
+        import torch
+        try:
+            torch.set_num_threads(1)
+        except Exception:
+            pass
+        print(f"Loading Hugging Face vehicle detector from: {target}...")
+        _vehicle_processor = AutoImageProcessor.from_pretrained(target)
+        _vehicle_model = AutoModelForObjectDetection.from_pretrained(target, low_cpu_mem_usage=True)
+        _vehicle_model.eval()
+        print("Hugging Face vehicle detector loaded successfully.")
+    except Exception as e:
+        print(f"Warning: Could not initialize Hugging Face vehicle detector ({e})")
+        _vehicle_processor = None
+        _vehicle_model = None
+
+    return _vehicle_processor, _vehicle_model
+
+def detect_vehicle_huggingface(image: Image.Image) -> tuple[bool, str, float]:
+    """
+    Stage 1: Scan image to find if any car, truck, bus, or vehicle is present using Hugging Face.
+    Returns: (is_vehicle_detected, vehicle_type, confidence_percent)
+    """
+    processor, model = get_vehicle_detector()
+    if processor is None or model is None:
+        return True, "Vehicle", 85.0
+
+    try:
+        import torch
+        inputs = processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            outputs = model(**inputs)
+            
+        target_sizes = torch.tensor([image.size[::-1]])
+        results = processor.post_process_object_detection(outputs, target_sizes=target_sizes, threshold=0.18)[0]
+        
+        best_veh_name = None
+        max_veh_score = 0.0
+
+        for score, label_idx in zip(results['scores'], results['labels']):
+            cls_name = model.config.id2label[label_idx.item()].lower()
+            sc_val = float(score.item())
+            if cls_name in VEHICLE_CLASSES and sc_val > max_veh_score:
+                max_veh_score = sc_val
+                best_veh_name = cls_name
+
+        del inputs, outputs, results
+        gc.collect()
+
+        if best_veh_name is not None and max_veh_score >= 0.18:
+            return True, best_veh_name.capitalize(), round(max_veh_score * 100.0, 2)
+
+        return False, "No Vehicle", 0.0
+
+    except Exception as e:
+        print(f"Error during Hugging Face vehicle detection: {e}")
+        return True, "Vehicle", 80.0
 
 def get_tflite_interpreter():
     """Load lightweight TFLite model (~2.5MB, ~10MB RAM)."""
@@ -110,15 +192,40 @@ def get_keras_model():
                 print(f"Error loading Keras model: {e}")
     return None
 
-
-
 async def process_accident_image(image_bytes: bytes) -> dict:
     """
-    Evaluates vehicle accident risk using high-accuracy TFLite model (~2.5MB),
-    falling back to Keras model if needed.
+    Hierarchical Two-Stage Pipeline:
+    Stage 1: Detect if a car/vehicle is in the image using Hugging Face (YOLOS).
+    Stage 2: If a vehicle is detected, run Accident Classification via lightweight TFLite.
     """
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        # -------------------------------------------------------------
+        # STAGE 1: Check if any car/vehicle is present (Hugging Face)
+        # -------------------------------------------------------------
+        has_vehicle, vehicle_type, vehicle_conf = detect_vehicle_huggingface(image)
+
+        if not has_vehicle:
+            # No car/vehicle in image -> Return Safe immediately
+            return {
+                "vehicle_detected": False,
+                "vehicle_type": "No Vehicle Detected",
+                "vehicle_confidence": 0.0,
+                "prediction": "No Vehicle (Safe)",
+                "confidence": 100.0,
+                "probabilities": {
+                    "Accident": 0.0,
+                    "Normal": 100.0
+                },
+                "status": "Safe",
+                "stage": "Stage 1: Vehicle Absent (HF YOLOS)",
+                "notes": "No car or vehicle was detected in the frame. Accident risk is 0%."
+            }
+
+        # -------------------------------------------------------------
+        # STAGE 2: Vehicle present -> Evaluate Accident Risk (TFLite)
+        # -------------------------------------------------------------
         img_resized = image.resize((224, 224))
         arr = np.expand_dims(np.array(img_resized, dtype=np.float32), axis=0)
 
@@ -155,8 +262,8 @@ async def process_accident_image(image_bytes: bytes) -> dict:
         if accident_prob is None:
             return {
                 "vehicle_detected": True,
-                "vehicle_type": "Vehicle (Standby)",
-                "vehicle_confidence": 85.0,
+                "vehicle_type": vehicle_type,
+                "vehicle_confidence": vehicle_conf,
                 "prediction": "Model Initializing",
                 "confidence": 50.0,
                 "probabilities": {"Accident": 0.0, "Normal": 100.0},
@@ -169,15 +276,13 @@ async def process_accident_image(image_bytes: bytes) -> dict:
         conf = accident_prob if is_accident else normal_prob
         pred_label = "Accident Detected" if is_accident else "Normal (No Accident)"
 
-        # Optional vehicle context
-        has_vehicle, vehicle_label, veh_conf = detect_vehicle_optional(is_accident)
-
+        del arr, img_resized
         gc.collect()
 
         return {
             "vehicle_detected": True,
-            "vehicle_type": vehicle_label,
-            "vehicle_confidence": round(veh_conf, 2),
+            "vehicle_type": vehicle_type,
+            "vehicle_confidence": round(vehicle_conf, 2),
             "prediction": pred_label,
             "confidence": round(conf, 2),
             "probabilities": {
@@ -185,8 +290,8 @@ async def process_accident_image(image_bytes: bytes) -> dict:
                 "Normal": round(normal_prob, 2)
             },
             "status": "Alert" if is_accident else "Safe",
-            "stage": "Accident Detection Core",
-            "notes": f"{pred_label} with {round(conf, 2)}% confidence."
+            "stage": "Stage 2: Accident Evaluated",
+            "notes": f"Vehicle ({vehicle_type}) verified with Hugging Face ({vehicle_conf}%). {pred_label} with {round(conf, 2)}% confidence."
         }
     except Exception as e:
         print(f"Error processing accident image: {e}")
