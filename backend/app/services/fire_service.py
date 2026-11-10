@@ -20,26 +20,24 @@ def get_fire_model():
             "/opt/render/project/src/backend/saved_fire_model"
         ]
         
-        model_path = None
+        local_model_path = None
         for path in candidate_paths:
             if os.path.exists(path) and os.path.isdir(path):
-                # Verify it has config.json
-                if os.path.exists(os.path.join(path, "config.json")):
-                    model_path = path.replace("\\", "/")
+                weights_path = os.path.join(path, "model.safetensors")
+                if os.path.exists(weights_path) and os.path.getsize(weights_path) > 1024 * 1024:
+                    local_model_path = path.replace("\\", "/")
                     break
         
-        if model_path is None:
-            print(f"Warning: valid saved_fire_model directory not found in: {candidate_paths}")
-            return None, None
-            
+        target = local_model_path if local_model_path else "prithivMLmods/Fire-Detection-Siglip2"
         try:
-            print(f"Loading fire model from local path: {model_path}...")
-            _fire_processor = AutoImageProcessor.from_pretrained(model_path, local_files_only=True)
-            _fire_model = AutoModelForImageClassification.from_pretrained(model_path, local_files_only=True)
+            print(f"Loading fire model from: {target}...")
+            _fire_processor = AutoImageProcessor.from_pretrained(target)
+            _fire_model = AutoModelForImageClassification.from_pretrained(target)
             _fire_model.eval()
             print("Fire model loaded successfully.")
         except Exception as e:
-            print(f"Error loading fire model: {e}")
+            print(f"Error loading fire model ({target}): {e}")
+            
     return _fire_processor, _fire_model
 
 async def process_fire_image(image_bytes: bytes) -> dict:
@@ -50,11 +48,11 @@ async def process_fire_image(image_bytes: bytes) -> dict:
     processor, model = get_fire_model()
     if processor is None or model is None:
         return {
-            "prediction": "Model not loaded",
+            "prediction": "Model Initializing",
             "confidence": 0.0,
             "probabilities": {},
             "status": "Safe",
-            "notes": "Fire model weights initializing or unavailable on cloud instance."
+            "notes": "Fire detection model is currently preparing on cloud instance."
         }
         
     try:
