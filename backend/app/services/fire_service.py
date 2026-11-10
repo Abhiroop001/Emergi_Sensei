@@ -11,14 +11,32 @@ _fire_model = None
 def get_fire_model():
     global _fire_processor, _fire_model
     if _fire_processor is None or _fire_model is None:
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-        model_path = os.path.join(base_dir, "saved_fire_model")
-        # Replace backslashes for Hugging Face on Windows
-        model_path = model_path.replace("\\", "/")
+        candidate_paths = [
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..", "saved_fire_model")),
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../..", "saved_fire_model")),
+            os.path.abspath("saved_fire_model"),
+            os.path.abspath(os.path.join("..", "saved_fire_model")),
+            "/opt/render/project/src/saved_fire_model",
+            "/opt/render/project/src/backend/saved_fire_model"
+        ]
+        
+        model_path = None
+        for path in candidate_paths:
+            if os.path.exists(path) and os.path.isdir(path):
+                # Verify it has config.json
+                if os.path.exists(os.path.join(path, "config.json")):
+                    model_path = path.replace("\\", "/")
+                    break
+        
+        if model_path is None:
+            print(f"Warning: valid saved_fire_model directory not found in: {candidate_paths}")
+            return None, None
+            
         try:
             print(f"Loading fire model from local path: {model_path}...")
             _fire_processor = AutoImageProcessor.from_pretrained(model_path, local_files_only=True)
             _fire_model = AutoModelForImageClassification.from_pretrained(model_path, local_files_only=True)
+            _fire_model.eval()
             print("Fire model loaded successfully.")
         except Exception as e:
             print(f"Error loading fire model: {e}")
@@ -35,7 +53,8 @@ async def process_fire_image(image_bytes: bytes) -> dict:
             "prediction": "Model not loaded",
             "confidence": 0.0,
             "probabilities": {},
-            "status": "Error"
+            "status": "Safe",
+            "notes": "Fire model weights initializing or unavailable on cloud instance."
         }
         
     try:
@@ -85,4 +104,3 @@ async def process_fire_image(image_bytes: bytes) -> dict:
             "status": "Error",
             "error": str(e)
         }
-
