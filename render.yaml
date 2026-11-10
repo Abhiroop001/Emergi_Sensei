@@ -1,4 +1,7 @@
 services:
+  # ---------------------------------------------
+  # 1. Emergi-Sensei Backend (FastAPI API & Inference)
+  # ---------------------------------------------
   - type: web
     name: emergi-sensei-backend
     runtime: python
@@ -11,3 +14,18 @@ services:
       - key: PYTHON_VERSION
         value: 3.10.12
 
+  # ---------------------------------------------
+  # 2. Emergi-Sensei Frontend (React + Vite SPA)
+  # ---------------------------------------------
+  - type: web
+    name: emergi-sensei-frontend
+    runtime: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
