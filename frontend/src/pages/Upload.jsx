@@ -10,12 +10,13 @@ import {
   FiDownload, 
   FiCheck,
   FiZap,
-  FiFileText
+  FiFileText,
+  FiInfo
 } from 'react-icons/fi';
 import { API_BASE_URL } from '../config/api';
 
 const Upload = () => {
-  const [detectionType, setDetectionType] = useState('Fire');
+  const [detectionType, setDetectionType] = useState('Accident');
   const [isUploading, setIsUploading] = useState(false);
   const [result, setResult] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -25,11 +26,12 @@ const Upload = () => {
   const [errorMessage, setErrorMessage] = useState('');
 
   const sampleImages = [
-    { name: 'Fire Incident', path: '/incidents/fire.jpg', type: 'Fire' },
-    { name: 'Smoke & Flames', path: '/incidents/fire2.jpg', type: 'Fire' },
-    { name: 'Vehicle Crash', path: '/incidents/accident.jpg', type: 'Accident' },
-    { name: 'Highway Collision', path: '/incidents/accident2.jpg', type: 'Accident' },
-    { name: 'Normal Traffic', path: '/incidents/normal1.jpg', type: 'Accident' },
+    { name: 'Vehicle Crash (Car + Accident)', path: '/incidents/accident.jpg', type: 'Accident', desc: 'Car Present + Collision' },
+    { name: 'Highway Collision (Multi-Vehicle)', path: '/incidents/accident2.jpg', type: 'Accident', desc: 'Vehicles Present + Crash' },
+    { name: 'Normal Traffic (Car Safe)', path: '/incidents/normal1.jpg', type: 'Accident', desc: 'Car Present + No Collision' },
+    { name: 'Empty Scene (No Car Safe)', path: '/incidents/fire.jpg', type: 'Accident', desc: 'No Car Detected -> Safe' },
+    { name: 'Fire Incident (Active Flame)', path: '/incidents/fire.jpg', type: 'Fire', desc: 'Flame Hazard' },
+    { name: 'Smoke & Flames (Active Fire)', path: '/incidents/fire2.jpg', type: 'Fire', desc: 'Combustion Hazard' },
   ];
 
   const handleFileChange = (e) => {
@@ -154,20 +156,12 @@ const Upload = () => {
               <FiZap className="text-neon-blue" />
               Manual Image Detection
             </h2>
-            <p className="text-slate-400 text-xs sm:text-sm">Run high-resolution inspection through SigLIP & MobileNet AI models</p>
+            <p className="text-slate-400 text-xs sm:text-sm">
+              Hierarchical 2-stage vision pipeline: Hugging Face YOLOS (Vehicle Verification) + TFLite Accident Classifier
+            </p>
           </div>
 
           <div className="inline-flex p-1 bg-navy-900 border border-slate-700 rounded-xl">
-            <button 
-              onClick={() => { setDetectionType('Fire'); setResult(null); }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
-                detectionType === 'Fire' 
-                  ? 'bg-alert-red text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' 
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <FiActivity /> Fire & Smoke
-            </button>
             <button 
               onClick={() => { setDetectionType('Accident'); setResult(null); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
@@ -178,27 +172,40 @@ const Upload = () => {
             >
               <FiShield /> Vehicle Accident
             </button>
+            <button 
+              onClick={() => { setDetectionType('Fire'); setResult(null); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+                detectionType === 'Fire' 
+                  ? 'bg-alert-red text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]' 
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FiActivity /> Fire & Smoke
+            </button>
           </div>
         </div>
 
         {/* Quick sample test images */}
         <div className="mb-6">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
-            Quick Test Samples:
+            Quick Test Bench Samples:
           </span>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {sampleImages.map((sample, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSelectSample(sample)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
-                  previewUrl === sample.path 
-                    ? 'bg-neon-blue/20 border-neon-blue text-white shadow-sm' 
+                className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between ${
+                  previewUrl === sample.path && detectionType === sample.type
+                    ? 'bg-neon-blue/20 border-neon-blue text-white shadow-md' 
                     : 'bg-navy-900/80 border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-navy-800'
                 }`}
               >
-                <span>{sample.name}</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${sample.type === 'Fire' ? 'bg-alert-red' : 'bg-alert-orange'}`}></span>
+                <div className="flex items-center justify-between w-full mb-1">
+                  <span className="text-xs font-bold truncate">{sample.name}</span>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${sample.type === 'Fire' ? 'bg-alert-red' : 'bg-alert-orange'}`}></span>
+                </div>
+                <span className="text-[10px] text-slate-400">{sample.desc}</span>
               </button>
             ))}
           </div>
@@ -248,7 +255,11 @@ const Upload = () => {
 
         <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-xs text-slate-400">
-            Selected Engine: <span className="font-semibold text-white">{detectionType === 'Fire' ? 'SigLIP Vision Transformer' : 'MobileNetV2 Classifier'}</span>
+            Selected Engine: <span className="font-semibold text-white">
+              {detectionType === 'Fire' 
+                ? 'SigLIP-2 Vision Transformer' 
+                : '2-Stage: Hugging Face YOLOS (Vehicle) + TFLite (Accident)'}
+            </span>
           </span>
           <button 
             onClick={handleUpload}
@@ -256,7 +267,7 @@ const Upload = () => {
             className="btn-primary w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isUploading ? (
-              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Running Neural Network...</>
+              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Running Neural Pipeline...</>
             ) : (
               <><FiImage /> Run AI Detection</>
             )}
@@ -279,9 +290,15 @@ const Upload = () => {
                 alt="Analyzed Feed" 
                 className="w-full h-full object-cover"
               />
-              {result.status === 'Alert' && (
+              {result.status === 'Alert' ? (
                 <div className="absolute inset-0 border-4 border-alert-red/80 bg-alert-red/10 animate-pulse flex items-start justify-end p-3">
                   <span className="bg-alert-red text-white text-xs font-bold px-2 py-1 rounded shadow-lg uppercase tracking-wider">
+                    {result.prediction}
+                  </span>
+                </div>
+              ) : (
+                <div className="absolute inset-0 border-2 border-success-green/40 bg-success-green/5 flex items-start justify-end p-3">
+                  <span className="bg-success-green text-white text-xs font-bold px-2 py-1 rounded shadow-lg uppercase tracking-wider">
                     {result.prediction}
                   </span>
                 </div>
@@ -293,7 +310,7 @@ const Upload = () => {
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2">
                     <FiCheckCircle className="text-success-green text-lg" />
-                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Inference Complete</span>
+                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Pipeline Completed</span>
                   </div>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                     result.status === 'Alert' 
@@ -304,41 +321,87 @@ const Upload = () => {
                   </span>
                 </div>
                 
-                <h3 className="text-2xl sm:text-3xl font-extrabold text-white mb-2 tracking-tight">{result.prediction}</h3>
-                
-                {/* Stage 1 Vehicle Pre-Detection Badge (for Accident Detection) */}
+                <h3 className="text-2xl sm:text-3xl font-extrabold text-white mb-3 tracking-tight">{result.prediction}</h3>
+
+                {/* 2-STAGE HIERARCHICAL ACCIDENT PIPELINE DISPLAY */}
                 {detectionType === 'Accident' && result.vehicle_detected !== undefined && (
-                  <div className={`mb-4 p-3 rounded-xl border text-xs flex items-center justify-between ${
-                    result.vehicle_detected 
-                      ? 'bg-neon-blue/15 border-neon-blue/40 text-blue-200' 
-                      : 'bg-slate-800/80 border-slate-700 text-slate-300'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{result.vehicle_detected ? '🚗' : '🚫'}</span>
-                      <div>
-                        <span className="font-bold text-white block">Stage 1: Vehicle Pre-Check</span>
-                        <span className="text-[11px] text-slate-300">
-                          {result.vehicle_detected 
-                            ? `Vehicle Identified: ${result.vehicle_type} (${result.vehicle_confidence}%)` 
-                            : 'No car or vehicle found in scene (Risk = 0%)'}
-                        </span>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      result.vehicle_detected ? 'bg-neon-blue text-white' : 'bg-slate-700 text-slate-400'
+                  <div className="space-y-2 mb-4">
+                    {/* Stage 1: Hugging Face Vehicle Detection */}
+                    <div className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                      result.vehicle_detected 
+                        ? 'bg-neon-blue/15 border-neon-blue/40 text-blue-100' 
+                        : 'bg-slate-800/90 border-slate-700 text-slate-300'
                     }`}>
-                      {result.vehicle_detected ? 'CAR DETECTED' : 'NO VEHICLE'}
-                    </span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">{result.vehicle_detected ? '🚗' : '🚫'}</span>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-white">Stage 1: Vehicle Pre-Check (Hugging Face)</span>
+                          </div>
+                          <span className="text-[11px] text-slate-300 block">
+                            {result.vehicle_detected 
+                              ? `Identified ${result.vehicle_type} (${result.vehicle_confidence}% detection confidence). Proceeded to collision check.` 
+                              : 'No cars or vehicles detected in frame. Collision risk is 0%.'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                        result.vehicle_detected ? 'bg-neon-blue text-white shadow-sm' : 'bg-slate-700 text-slate-300'
+                      }`}>
+                        {result.vehicle_detected ? 'VEHICLE PRESENT' : 'NO VEHICLE'}
+                      </span>
+                    </div>
+
+                    {/* Stage 2: TFLite Collision Assessment */}
+                    <div className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                      !result.vehicle_detected
+                        ? 'bg-navy-950/60 border-slate-800 text-slate-400'
+                        : result.status === 'Alert'
+                        ? 'bg-alert-red/15 border-alert-red/40 text-red-100'
+                        : 'bg-success-green/15 border-success-green/40 text-emerald-100'
+                    }`}>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xl">{!result.vehicle_detected ? '⏸️' : result.status === 'Alert' ? '💥' : '🛣️'}</span>
+                        <div>
+                          <span className="font-bold text-white block">Stage 2: Accident Evaluation (TFLite)</span>
+                          <span className="text-[11px] text-slate-300 block">
+                            {!result.vehicle_detected 
+                              ? 'Stage 2 bypassed safely because Stage 1 found no vehicle.' 
+                              : result.prediction}
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                        !result.vehicle_detected 
+                          ? 'bg-slate-800 text-slate-400' 
+                          : result.status === 'Alert' 
+                          ? 'bg-alert-red text-white' 
+                          : 'bg-success-green text-white'
+                      }`}>
+                        {!result.vehicle_detected ? 'BYPASSED (SAFE)' : result.status === 'Alert' ? 'CRASH DETECTED' : 'NORMAL'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Diagnostic Notes Banner */}
+                {result.notes && (
+                  <div className="mb-4 p-3 bg-navy-900/90 rounded-xl border border-slate-700/70 text-xs flex items-start gap-2 text-slate-300">
+                    <FiInfo className="text-neon-blue mt-0.5 shrink-0 text-sm" />
+                    <div>
+                      <span className="font-bold text-white block mb-0.5">AI Diagnostic Verdict</span>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">{result.notes}</p>
+                    </div>
                   </div>
                 )}
 
                 {/* Confidence Bar */}
-                <div className="mb-5 p-4 bg-navy-900/80 rounded-xl border border-slate-700/60">
+                <div className="mb-4 p-4 bg-navy-900/80 rounded-xl border border-slate-700/60">
                   <div className="flex justify-between text-xs mb-2">
-                    <span className="text-slate-400 font-medium">Model Confidence</span>
+                    <span className="text-slate-400 font-medium">Confidence Score</span>
                     <span className="text-neon-blue font-bold text-sm">{result.confidence}%</span>
                   </div>
-                  <div className="w-full bg-navy-950 rounded-full h-3 overflow-hidden border border-slate-700/50">
+                  <div className="w-full bg-navy-950 rounded-full h-2.5 overflow-hidden border border-slate-700/50">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${result.confidence}%` }}
@@ -350,10 +413,9 @@ const Upload = () => {
                   </div>
                 </div>
 
-
                 {/* Class Probabilities breakdown */}
                 {result.probabilities && Object.keys(result.probabilities).length > 0 && (
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2">
                       Class Distribution:
                     </span>
@@ -371,10 +433,10 @@ const Upload = () => {
 
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <button 
-                  onClick={() => alert(`Report Generated:\nPrediction: ${result.prediction}\nConfidence: ${result.confidence}%\nStatus: ${result.status}`)}
+                  onClick={() => alert(`Emergi-Sensei AI Report:\nPrediction: ${result.prediction}\nConfidence: ${result.confidence}%\nStatus: ${result.status}\nStage: ${result.stage || 'Completed'}\nDiagnostic: ${result.notes || 'N/A'}`)}
                   className="btn-secondary flex-1 flex items-center justify-center gap-2 text-xs sm:text-sm py-2.5 rounded-xl"
                 >
-                  <FiFileText /> View Report
+                  <FiFileText /> View Full Report
                 </button>
                 {result.status === 'Alert' && (
                   <button 
@@ -399,4 +461,3 @@ const Upload = () => {
 };
 
 export default Upload;
-

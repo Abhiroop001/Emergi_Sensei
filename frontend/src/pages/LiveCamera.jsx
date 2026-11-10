@@ -657,6 +657,28 @@ const LiveCamera = () => {
                   ) : (
                     /* Single Model Result */
                     <div className="p-4 bg-navy-900/80 rounded-xl border border-slate-700/60 space-y-3">
+                      {analysisResult.type === 'Accident' && analysisResult.primary?.vehicle_detected !== undefined && (
+                        <div className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
+                          analysisResult.primary.vehicle_detected 
+                            ? 'bg-neon-blue/15 border-neon-blue/40 text-blue-200' 
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            <span>{analysisResult.primary.vehicle_detected ? '🚗' : '🚫'}</span>
+                            <span className="text-[11px]">
+                              {analysisResult.primary.vehicle_detected 
+                                ? `Stage 1: ${analysisResult.primary.vehicle_type} (${analysisResult.primary.vehicle_confidence}%)` 
+                                : 'Stage 1: No Vehicle Detected (Safe)'}
+                            </span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            analysisResult.primary.vehicle_detected ? 'bg-neon-blue text-white' : 'bg-slate-700 text-slate-400'
+                          }`}>
+                            {analysisResult.primary.vehicle_detected ? 'CAR DETECTED' : 'SAFE'}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex justify-between text-xs">
                         <span className="text-slate-400">Confidence Score</span>
                         <span className="text-neon-blue font-bold">{analysisResult.primary?.confidence}%</span>
