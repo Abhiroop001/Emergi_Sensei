@@ -7,5 +7,4 @@ Pillow
 torch
 torchvision
 transformers
-tensorflow
-keras
+ai-edge-litert
