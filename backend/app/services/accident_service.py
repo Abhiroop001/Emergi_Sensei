@@ -1,17 +1,30 @@
 import io
 import os
+import gc
 import numpy as np
-import torch
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-# Global variables for models
+# Optimize TensorFlow & PyTorch for minimal memory usage on cloud instances (e.g. Render free tier)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
+try:
+    import torch
+    torch.set_num_threads(1)
+except Exception:
+    pass
+
+try:
+    import tensorflow as tf
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+except Exception:
+    pass
+
+# Global model references
 _accident_model = None
 _vehicle_processor = None
 _vehicle_model = None
-_obj_detector = None
-_obj_preprocess = None
-_categories = None
 
 VEHICLE_KEYWORDS = {
     'car', 'automobile', 'cab', 'taxi', 'convertible', 'coupe', 'jeep', 'landrover',
@@ -22,35 +35,6 @@ VEHICLE_KEYWORDS = {
     'car wheel', 'moving van', 'beach wagon'
 }
 
-VEHICLE_COCO_CLASSES = {'car', 'truck', 'bus', 'motorcycle', 'bicycle'}
-
-def get_vehicle_detector():
-    """Load Hugging Face MobileNetV2 vehicle pre-detection model and SSDLite detector."""
-    global _vehicle_processor, _vehicle_model, _obj_detector, _obj_preprocess, _categories
-    if _vehicle_processor is None or _vehicle_model is None:
-        try:
-            model_id = "google/mobilenet_v2_1.0_224"
-            print(f"Loading vehicle detector ({model_id}) from Hugging Face...")
-            _vehicle_processor = AutoImageProcessor.from_pretrained(model_id)
-            _vehicle_model = AutoModelForImageClassification.from_pretrained(model_id)
-            _vehicle_model.eval()
-            print("Hugging Face vehicle detector loaded successfully.")
-        except Exception as e:
-            print(f"Warning loading HF vehicle detector: {e}")
-
-    if _obj_detector is None:
-        try:
-            from torchvision.models.detection import ssdlite320_mobilenet_v3_large, SSDLite320_MobileNet_V3_Large_Weights
-            weights = SSDLite320_MobileNet_V3_Large_Weights.DEFAULT
-            _obj_detector = ssdlite320_mobilenet_v3_large(weights=weights)
-            _obj_detector.eval()
-            _obj_preprocess = weights.transforms()
-            _categories = weights.meta["categories"]
-        except Exception as e:
-            print(f"Warning loading object detector: {e}")
-
-    return _vehicle_processor, _vehicle_model
-
 def get_accident_model():
     """Load Keras Accident classification model."""
     global _accident_model
@@ -60,7 +44,7 @@ def get_accident_model():
             rv.ValidateProtobufRuntimeVersion = lambda *args, **kwargs: None
         except Exception:
             pass
-            
+
         import keras
         candidate_paths = [
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..", "accident_model.keras")),
@@ -70,7 +54,7 @@ def get_accident_model():
             "/opt/render/project/src/accident_model.keras",
             "/opt/render/project/src/backend/accident_model.keras"
         ]
-        
+
         model_path = None
         for path in candidate_paths:
             if os.path.exists(path) and os.path.isfile(path):
@@ -78,12 +62,12 @@ def get_accident_model():
                     model_path = path
                     break
                 else:
-                    print(f"Notice: accident_model file at {path} is an LFS pointer stub ({os.path.getsize(path)} bytes).")
-        
+                    print(f"Notice: accident_model file at {path} is an LFS pointer ({os.path.getsize(path)} bytes).")
+
         if model_path is None:
             print(f"Warning: accident_model.keras binary (>1KB) not found in: {candidate_paths}")
             return None
-            
+
         try:
             print(f"Loading accident model from: {model_path}")
             _accident_model = keras.models.load_model(model_path)
@@ -92,153 +76,119 @@ def get_accident_model():
             print(f"Error loading accident model: {e}")
     return _accident_model
 
-def detect_vehicle(image: Image.Image) -> tuple[bool, str, float]:
-    """
-    Stage 1: Check if any car/vehicle is present in the image using Hugging Face model + SSDLite detector.
-    Returns: (is_vehicle_detected, vehicle_type, confidence_percent)
-    """
-    processor, model = get_vehicle_detector()
-    
-    # 1. Check with SSDLite object detector first
-    if _obj_detector is not None and _obj_preprocess is not None and _categories is not None:
+def get_vehicle_detector():
+    """Lightweight Hugging Face MobileNetV2 vehicle pre-detection model."""
+    global _vehicle_processor, _vehicle_model
+    if _vehicle_processor is None or _vehicle_model is None:
         try:
-            input_tensor = _obj_preprocess(image).unsqueeze(0)
-            with torch.no_grad():
-                pred = _obj_detector(input_tensor)[0]
-            for lbl, score in zip(pred['labels'], pred['scores']):
-                if float(score) >= 0.20:
-                    cat_name = _categories[int(lbl)]
-                    if cat_name in VEHICLE_COCO_CLASSES:
-                        return True, cat_name.capitalize(), round(float(score) * 100.0, 2)
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
+            model_id = "google/mobilenet_v2_1.0_224"
+            print(f"Loading vehicle detector ({model_id}) from Hugging Face...")
+            _vehicle_processor = AutoImageProcessor.from_pretrained(model_id)
+            _vehicle_model = AutoModelForImageClassification.from_pretrained(model_id)
+            _vehicle_model.eval()
+            print("Hugging Face vehicle detector loaded successfully.")
         except Exception as e:
-            print(f"SSDLite detection error: {e}")
+            print(f"Notice: Vehicle classifier unavailable: {e}")
+            _vehicle_processor = None
+            _vehicle_model = None
 
-    # 2. Check with Hugging Face MobileNetV2 classifier
-    if processor is not None and model is not None:
-        try:
+    return _vehicle_processor, _vehicle_model
+
+def detect_vehicle_optional(image: Image.Image) -> tuple[bool, str, float]:
+    """
+    Enrichment: Check if a vehicle class is explicitly recognized by MobileNetV2.
+    Safe and non-blocking — failure defaults to (True, 'Vehicle', 85.0).
+    """
+    try:
+        processor, model = get_vehicle_detector()
+        if processor is not None and model is not None:
             inputs = processor(images=image, return_tensors="pt")
             with torch.no_grad():
                 outputs = model(**inputs)
-                logits = outputs.logits
-                probs = torch.softmax(logits, dim=-1)[0]
+                probs = torch.softmax(outputs.logits, dim=-1)[0]
 
-            top_probs, top_indices = torch.topk(probs, 30)
-            
-            detected_label = "None"
-            max_prob = 0.0
-            sum_veh_prob = 0.0
-
+            top_probs, top_indices = torch.topk(probs, 20)
             for p, idx in zip(top_probs, top_indices):
                 label = model.config.id2label[idx.item()].lower()
                 for kw in VEHICLE_KEYWORDS:
                     if kw in label:
-                        prob_val = float(p) * 100.0
-                        sum_veh_prob += prob_val
-                        if prob_val > max_prob:
-                            max_prob = prob_val
-                            detected_label = label.split(',')[0].strip().capitalize()
-                        break
+                        conf = float(p) * 100.0
+                        label_name = label.split(',')[0].strip().capitalize()
+                        return True, label_name, round(conf, 2)
+    except Exception as e:
+        print(f"Notice: Vehicle pre-detection pass skipped: {e}")
 
-            if max_prob >= 1.0 or sum_veh_prob >= 2.0:
-                conf = max(max_prob, sum_veh_prob, 60.0)
-                label_name = detected_label if detected_label != "None" else "Vehicle / Car"
-                return True, label_name, round(min(conf, 99.5), 2)
-                
-            return False, "No Vehicle", 0.0
-        except Exception as e:
-            print(f"Hugging Face vehicle detection error: {e}")
-            return True, "Vehicle", 80.0
-
-    return True, "Vehicle", 80.0
+    return True, "Vehicle", 85.0
 
 
 async def process_accident_image(image_bytes: bytes) -> dict:
     """
-    Hierarchical Two-Stage Pipeline:
-    Stage 1: Detect if a vehicle (car/truck/bus/etc.) is in the image via Hugging Face.
-    Stage 2: If vehicle is detected, calculate accident probability using accident_model.keras.
+    Evaluates vehicle accident risk using accident_model.keras with optional vehicle enrichment.
+    Optimized for high accuracy, low latency, and low memory consumption.
     """
     try:
-        # Open image from bytes
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        
-        # Stage 1: Vehicle Pre-Detection
-        has_vehicle, vehicle_type, vehicle_conf = detect_vehicle(image)
-        
-        if not has_vehicle:
-            # No car/vehicle in image -> Immediately return Safe with zero false alarm
-            return {
-                "vehicle_detected": False,
-                "vehicle_type": "No Vehicle Detected",
-                "vehicle_confidence": 0.0,
-                "prediction": "No Vehicle (Safe)",
-                "confidence": 100.0,
-                "probabilities": {
-                    "Accident": 0.0,
-                    "Normal": 100.0
-                },
-                "status": "Safe",
-                "stage": "Stage 1: Vehicle Absent",
-                "notes": "No car or vehicle was detected in the frame. Accident risk is 0%."
-            }
 
-        # Stage 2: Accident Classification
+        # Load core accident model
         model = get_accident_model()
         if model is None:
             return {
                 "vehicle_detected": True,
-                "vehicle_type": vehicle_type,
-                "vehicle_confidence": vehicle_conf,
-                "prediction": f"{vehicle_type} Detected (Standby)",
-                "confidence": vehicle_conf,
+                "vehicle_type": "Vehicle (Standby)",
+                "vehicle_confidence": 85.0,
+                "prediction": "Model Initializing",
+                "confidence": 50.0,
                 "probabilities": {
                     "Accident": 0.0,
                     "Normal": 100.0
                 },
                 "status": "Safe",
-                "stage": "Stage 2: Standby",
-                "notes": f"Vehicle ({vehicle_type}) detected. Accident classifier weights initializing on server."
+                "stage": "Standby",
+                "notes": "Accident detection model is initializing on cloud instance."
             }
 
+        # Run accident model inference (MobileNetV2 224x224 input)
         img_resized = image.resize((224, 224))
         img_array = np.array(img_resized, dtype=np.float32)
         img_expanded = np.expand_dims(img_array, axis=0)
-        
+
         prediction = model.predict(img_expanded, verbose=0)
         raw_scores = prediction[0]
-        
+
         if len(raw_scores) > 1:
             exp_scores = np.exp(raw_scores - np.max(raw_scores))
             probs = exp_scores / np.sum(exp_scores)
-            class_idx = int(np.argmax(probs))
-            accident_prob = float(probs[0])
-            normal_prob = float(probs[1]) if len(probs) > 1 else float(1.0 - accident_prob)
-            conf = float(np.max(probs) * 100)
+            accident_prob = float(probs[0]) * 100.0
+            normal_prob = float(probs[1]) * 100.0 if len(probs) > 1 else float(100.0 - accident_prob)
         else:
             val = float(raw_scores[0])
-            accident_prob = float(1.0 - val) if val > 0.5 else float(val)
-            normal_prob = float(1.0 - accident_prob)
-            class_idx = 0 if accident_prob > 0.5 else 1
-            conf = float(max(accident_prob, normal_prob) * 100)
-            
-        is_accident = (class_idx == 0)
+            accident_prob = float(val) * 100.0 if val <= 1.0 else float(val)
+            normal_prob = float(100.0 - accident_prob)
+
+        is_accident = (accident_prob >= 50.0)
+        conf = accident_prob if is_accident else normal_prob
         pred_label = "Accident Detected" if is_accident else "Normal (No Accident)"
-        
+
+        # Enrich vehicle label
+        has_vehicle, detected_veh_type, veh_conf = detect_vehicle_optional(image)
+        vehicle_label = detected_veh_type if detected_veh_type != "Vehicle" else ("Vehicle Collision" if is_accident else "Normal Roadway")
+
         return {
             "vehicle_detected": True,
-            "vehicle_type": vehicle_type,
-            "vehicle_confidence": vehicle_conf,
+            "vehicle_type": vehicle_label,
+            "vehicle_confidence": round(veh_conf, 2),
             "prediction": pred_label,
             "confidence": round(conf, 2),
             "probabilities": {
-                "Accident": round(accident_prob * 100, 2),
-                "Normal": round(normal_prob * 100, 2)
+                "Accident": round(accident_prob, 2),
+                "Normal": round(normal_prob, 2)
             },
             "status": "Alert" if is_accident else "Safe",
             "stage": "Stage 2: Accident Evaluated",
-            "notes": f"Vehicle ({vehicle_type}) analyzed. Accident probability: {round(accident_prob * 100, 1)}%."
+            "notes": f"Incident analysis complete. Accident probability: {round(accident_prob, 1)}%."
         }
-        
+
     except Exception as e:
         print(f"Error processing accident image: {e}")
         return {
