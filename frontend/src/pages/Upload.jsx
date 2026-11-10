@@ -12,6 +12,7 @@ import {
   FiZap,
   FiFileText
 } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const Upload = () => {
   const [detectionType, setDetectionType] = useState('Fire');
@@ -98,7 +99,7 @@ const Upload = () => {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const apiUrl = API_BASE_URL;
     const endpoint = detectionType === 'Fire' ? `${apiUrl}/firemodel/` : `${apiUrl}/accidentmodel/`;
 
     try {
@@ -125,7 +126,7 @@ const Upload = () => {
   const handleRaiseAlarm = async () => {
     if (!result) return;
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const apiUrl = API_BASE_URL;
       await fetch(`${apiUrl}/alerts/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

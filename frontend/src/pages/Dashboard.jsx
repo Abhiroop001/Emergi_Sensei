@@ -10,8 +10,11 @@ import {
   FiXCircle, 
   FiArrowRight, 
   FiUploadCloud,
-  FiZap
+  FiZap,
+  FiVideo,
+  FiRefreshCw
 } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const Dashboard = () => {
   const [stats, setStats] = useState([
@@ -33,51 +36,63 @@ const Dashboard = () => {
     uptime: '99.98%'
   });
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-        
-        // Fetch analytics
-        const analyticsRes = await fetch(`${apiUrl}/analytics/summary`);
-        if (analyticsRes.ok) {
-          const analyticsData = await analyticsRes.json();
-          if (analyticsData.stats) {
-            setStats([
-              { title: 'Total Cameras', value: analyticsData.stats[0].value, icon: FiCamera, color: 'text-neon-blue', bg: 'bg-neon-blue/10', change: analyticsData.stats[0].change },
-              { title: 'Active Alerts', value: analyticsData.stats[1].value, icon: FiAlertTriangle, color: 'text-alert-red', bg: 'bg-alert-red/10', change: analyticsData.stats[1].change },
-              { title: 'Fire Detections', value: analyticsData.stats[2].value, icon: FiActivity, color: 'text-alert-orange', bg: 'bg-alert-orange/10', change: analyticsData.stats[2].change },
-              { title: 'Accident Detections', value: analyticsData.stats[3].value, icon: FiShield, color: 'text-success-green', bg: 'bg-success-green/10', change: analyticsData.stats[3].change },
-            ]);
-          }
-          if (analyticsData.system_health) {
-            setSystemHealth({
-              status: analyticsData.system_health.overall,
-              latency: analyticsData.system_health.avg_inference_latency,
-              uptime: analyticsData.system_health.uptime
-            });
-          }
-        }
+  const [backendStatus, setBackendStatus] = useState('connecting'); // 'connected' | 'connecting' | 'offline'
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-        // Fetch recent alerts
-        const alertsRes = await fetch(`${apiUrl}/alerts/`);
-        if (alertsRes.ok) {
-          const alertsData = await alertsRes.json();
-          setRecentAlerts(alertsData.slice(0, 4));
-        }
-      } catch (err) {
-        console.warn("Using fallback local telemetry for dashboard:", err);
+  const fetchDashboardData = async () => {
+    setIsRefreshing(true);
+    try {
+      // 1. Health check to confirm live backend connection
+      const healthRes = await fetch(`${API_BASE_URL}/health`, { signal: AbortSignal.timeout(6000) }).catch(() => null);
+      if (healthRes && healthRes.ok) {
+        setBackendStatus('connected');
+      } else {
+        setBackendStatus('offline');
       }
-    };
 
+      // 2. Fetch analytics
+      const analyticsRes = await fetch(`${API_BASE_URL}/analytics/summary`);
+      if (analyticsRes.ok) {
+        const analyticsData = await analyticsRes.json();
+        if (analyticsData.stats) {
+          setStats([
+            { title: 'Total Cameras', value: analyticsData.stats[0].value, icon: FiCamera, color: 'text-neon-blue', bg: 'bg-neon-blue/10', change: analyticsData.stats[0].change },
+            { title: 'Active Alerts', value: analyticsData.stats[1].value, icon: FiAlertTriangle, color: 'text-alert-red', bg: 'bg-alert-red/10', change: analyticsData.stats[1].change },
+            { title: 'Fire Detections', value: analyticsData.stats[2].value, icon: FiActivity, color: 'text-alert-orange', bg: 'bg-alert-orange/10', change: analyticsData.stats[2].change },
+            { title: 'Accident Detections', value: analyticsData.stats[3].value, icon: FiShield, color: 'text-success-green', bg: 'bg-success-green/10', change: analyticsData.stats[3].change },
+          ]);
+        }
+        if (analyticsData.system_health) {
+          setSystemHealth({
+            status: analyticsData.system_health.overall,
+            latency: analyticsData.system_health.avg_inference_latency,
+            uptime: analyticsData.system_health.uptime
+          });
+        }
+      }
+
+      // 3. Fetch recent alerts
+      const alertsRes = await fetch(`${API_BASE_URL}/alerts/`);
+      if (alertsRes.ok) {
+        const alertsData = await alertsRes.json();
+        setRecentAlerts(alertsData.slice(0, 4));
+      }
+    } catch (err) {
+      console.warn("Using fallback local telemetry for dashboard:", err);
+      setBackendStatus('offline');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     fetchDashboardData();
   }, []);
 
   const handleResolveAlert = async (id) => {
     setRecentAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'Resolved' } : a));
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-      await fetch(`${apiUrl}/alerts/${id}`, {
+      await fetch(`${API_BASE_URL}/alerts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Resolved' })
@@ -90,8 +105,7 @@ const Dashboard = () => {
   const handleDismissAlert = async (id) => {
     setRecentAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'False Alarm' } : a));
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-      await fetch(`${apiUrl}/alerts/${id}`, {
+      await fetch(`${API_BASE_URL}/alerts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'False Alarm' })
@@ -110,16 +124,41 @@ const Dashboard = () => {
             <FiZap className="text-2xl" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-white">Emergency Surveillance Command Center</h2>
-            <p className="text-xs text-slate-400">SigLIP & MobileNet Dual AI Core online • Latency: {systemHealth.latency} • Uptime: {systemHealth.uptime}</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-white">Emergency Surveillance Command Center</h2>
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                backendStatus === 'connected'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : backendStatus === 'connecting'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                  : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  backendStatus === 'connected' ? 'bg-emerald-400 animate-ping' : backendStatus === 'connecting' ? 'bg-amber-400' : 'bg-rose-400'
+                }`} />
+                {backendStatus === 'connected' ? 'Cloud AI Online' : backendStatus === 'connecting' ? 'Connecting AI...' : 'Local Fallback'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">SigLIP & MobileNet Dual AI Core • Latency: {systemHealth.latency} • Uptime: {systemHealth.uptime}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <Link to="/app/upload" className="btn-primary text-xs sm:text-sm px-4 py-2 rounded-xl flex items-center justify-center gap-2 flex-1 md:flex-initial">
+        <div className="flex items-center flex-wrap gap-2.5 w-full md:w-auto">
+          <button 
+            onClick={fetchDashboardData}
+            disabled={isRefreshing}
+            className="p-2.5 bg-slate-800/80 hover:bg-slate-700 border border-slate-700 rounded-xl text-slate-300 hover:text-white transition-all text-xs flex items-center gap-1.5 disabled:opacity-50"
+            title="Refresh Telemetry"
+          >
+            <FiRefreshCw className={isRefreshing ? 'animate-spin' : ''} />
+          </button>
+          <Link to="/app/live-camera" className="btn-primary text-xs sm:text-sm px-4 py-2 rounded-xl flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-semibold shadow-lg shadow-orange-500/20">
+            <FiVideo /> Live AI Camera
+          </Link>
+          <Link to="/app/upload" className="btn-secondary text-xs sm:text-sm px-4 py-2 rounded-xl flex items-center justify-center gap-2 border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-white font-medium">
             <FiUploadCloud /> Manual AI Scan
           </Link>
-          <Link to="/app/cctv" className="btn-secondary text-xs sm:text-sm px-4 py-2 rounded-xl flex items-center justify-center gap-2 flex-1 md:flex-initial">
-            <FiCamera /> Live Matrix
+          <Link to="/app/cctv" className="btn-secondary text-xs sm:text-sm px-4 py-2 rounded-xl flex items-center justify-center gap-2 border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-white font-medium">
+            <FiCamera /> CCTV Matrix
           </Link>
         </div>
       </div>

@@ -12,6 +12,7 @@ import {
   FiClock,
   FiMapPin
 } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const Alerts = () => {
   const [alerts, setAlerts] = useState([]);
@@ -30,7 +31,7 @@ const Alerts = () => {
   useEffect(() => {
     const fetchAlerts = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+        const apiUrl = API_BASE_URL;
         const res = await fetch(`${apiUrl}/alerts/`);
         if (res.ok) {
           const data = await res.json();
@@ -52,7 +53,7 @@ const Alerts = () => {
     }
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const apiUrl = API_BASE_URL;
       await fetch(`${apiUrl}/alerts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

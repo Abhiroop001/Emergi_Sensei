@@ -13,6 +13,7 @@ import {
   FiAlertTriangle,
   FiDownload
 } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const CCTV = () => {
   const [filter, setFilter] = useState('All');
@@ -35,7 +36,7 @@ const CCTV = () => {
   useEffect(() => {
     const fetchCameras = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+        const apiUrl = API_BASE_URL;
         const res = await fetch(`${apiUrl}/cameras/`);
         if (res.ok) {
           const data = await res.json();

@@ -18,6 +18,7 @@ import {
   FiMaximize,
   FiFileText
 } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const LiveCamera = () => {
   const videoRef = useRef(null);
@@ -172,7 +173,7 @@ const LiveCamera = () => {
       }
 
       const file = new File([blob], `live_snapshot_${Date.now()}.jpg`, { type: 'image/jpeg' });
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const apiUrl = API_BASE_URL;
 
       try {
         if (modelMode === 'fire') {
@@ -274,7 +275,7 @@ const LiveCamera = () => {
   const handleRaiseAlarm = async () => {
     if (!analysisResult) return;
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+      const apiUrl = API_BASE_URL;
       const hazardType = analysisResult.fire?.status === 'Alert' ? 'Fire' : 'Accident';
       const conf = analysisResult.fire?.confidence || analysisResult.accident?.confidence || analysisResult.primary?.confidence || 95.0;
 

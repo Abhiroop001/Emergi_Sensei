@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { FiBell, FiSearch, FiUser, FiMenu, FiCheckCircle, FiShield, FiActivity, FiLogOut } from 'react-icons/fi';
+import { API_BASE_URL } from '../../config/api';
 
 const Navbar = ({ onToggleSidebar }) => {
   const location = useLocation();
@@ -13,7 +14,7 @@ const Navbar = ({ onToggleSidebar }) => {
     // Fetch recent active alerts for notification menu
     const fetchAlerts = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+        const apiUrl = API_BASE_URL;
         const res = await fetch(`${apiUrl}/alerts/?status=Active`);
         if (res.ok) {
           const data = await res.json();

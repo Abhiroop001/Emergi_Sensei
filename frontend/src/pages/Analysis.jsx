@@ -5,6 +5,7 @@ import {
   BarChart, Bar, Legend, PieChart, Pie, Cell
 } from 'recharts';
 import { FiTrendingUp, FiAlertCircle, FiPieChart, FiCalendar, FiCheckCircle } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const Analysis = () => {
   const [timeframe, setTimeframe] = useState('7d');
@@ -35,7 +36,7 @@ const Analysis = () => {
   useEffect(() => {
     const fetchAnalytics = async () => {
       try {
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+        const apiUrl = API_BASE_URL;
         const res = await fetch(`${apiUrl}/analytics/summary`);
         if (res.ok) {
           const data = await res.json();
